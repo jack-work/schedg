@@ -21,8 +21,14 @@ type DB struct {
 	StatePath  string `json:"state_path,omitempty"` // override queue state path; "" => default
 }
 
+type Links struct {
+	SchedgURL string `json:"schedg_url,omitempty"`
+	AnglURL   string `json:"angl_url,omitempty"`
+}
+
 type Config struct {
-	DBs []DB `json:"dbs"`
+	Links Links `json:"links,omitempty"`
+	DBs   []DB  `json:"dbs"`
 }
 
 func Dir() string {

@@ -21,6 +21,12 @@ interface TaskView {
   cancels?: number;
   reason?: string;
   leasedAt?: string;
+  caller?: string;
+}
+
+interface LinksConfig {
+  schedg_url?: string;
+  angl_url?: string;
 }
 
 interface DepEdge {
@@ -97,6 +103,7 @@ function useSSE<T>(url: string | null, onMessage: (data: T) => void) {
 
 export function App() {
   const [queues, setQueues] = useState<QueueEntry[]>([]);
+  const [links, setLinks] = useState<LinksConfig>({});
   const [selectedQueue, setSelectedQueue] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
   const [view, setView] = useState<View>("list");
@@ -109,12 +116,10 @@ export function App() {
   const [focusedIdx, setFocusedIdx] = useState(-1);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  // Load queues on mount.
+  // Load queues and links on mount.
   useEffect(() => {
-    fetch("/api/queues")
-      .then((r) => r.json())
-      .then(setQueues)
-      .catch(() => {});
+    fetch("/api/queues").then(r => r.json()).then(setQueues).catch(() => {});
+    fetch("/api/links").then(r => r.json()).then(setLinks).catch(() => {});
   }, []);
 
   // Read queue name from URL hash on load.
@@ -371,6 +376,7 @@ export function App() {
               <TaskDetail
                 task={selectedTask}
                 snapshot={snapshot}
+                links={links}
                 onBack={() => setSelectedTask(null)}
                 onToggleFullscreen={() => setDetailMode((m) => m === "split" ? "fullscreen" : "split")}
                 isFullscreen={detailMode === "fullscreen"}
@@ -383,6 +389,7 @@ export function App() {
           <TaskDetail
             task={selectedTask}
             snapshot={snapshot}
+            links={links}
             onBack={goBack}
             onToggleFullscreen={() => setDetailMode((m) => m === "split" ? "fullscreen" : "split")}
             isFullscreen={detailMode === "fullscreen"}
@@ -560,6 +567,9 @@ function QueueView({
                 {relativeTime(t.leasedAt)}
               </span>
             )}
+            {t.caller && (
+              <span className="sg-task-caller" title={`Caller: ${t.caller}`}>{t.caller}</span>
+            )}
             {(t.attempts ?? 0) > 0 && (
               <span className="sg-task-attempts">try {t.attempts}</span>
             )}
@@ -588,12 +598,14 @@ function QueueView({
 function TaskDetail({
   task,
   snapshot,
+  links,
   onBack,
   onToggleFullscreen,
   isFullscreen,
 }: {
   task: TaskView;
   snapshot: QueueSnapshot;
+  links: LinksConfig;
   onBack: () => void;
   onToggleFullscreen?: () => void;
   isFullscreen?: boolean;
@@ -686,6 +698,18 @@ function TaskDetail({
           <div className="sg-meta-row">
             <span className="sg-meta-key">Reason</span>
             <span className="sg-meta-val sg-meta-reason">{task.reason}</span>
+          </div>
+        )}
+        {task.caller && (
+          <div className="sg-meta-row">
+            <span className="sg-meta-key">Caller</span>
+            <span className="sg-meta-val">
+              {links.angl_url ? (
+                <a className="sg-caller-link" href={`${links.angl_url}#${encodeURIComponent(task.caller)}`} target="_blank" rel="noopener">
+                  {task.caller}
+                </a>
+              ) : task.caller}
+            </span>
           </div>
         )}
         {blockedBy.length > 0 && (

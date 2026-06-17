@@ -31,6 +31,7 @@ func New(cfg *config.Config, webDir string) *Server {
 	s.mux.HandleFunc("GET /api/queues", s.handleQueues)
 	s.mux.HandleFunc("GET /api/queues/{name}/status", s.handleStatus)
 	s.mux.HandleFunc("GET /api/queues/{name}/events", s.handleSSE)
+	s.mux.HandleFunc("GET /api/links", s.handleLinks)
 	s.mux.HandleFunc("GET /api/logs", s.handleLogsSSE)
 	s.mux.Handle("GET /", http.FileServer(http.Dir(webDir)))
 	return s
@@ -44,6 +45,10 @@ func (s *Server) ListenAndServe(addr string) error {
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)
+}
+
+func (s *Server) handleLinks(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, s.cfg.Links)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
@@ -177,6 +182,7 @@ type TaskView struct {
 	Cancels     int    `json:"cancels,omitempty"`
 	Reason      string `json:"reason,omitempty"`
 	LeasedAt    string `json:"leasedAt,omitempty"`
+	Caller      string `json:"caller,omitempty"`
 }
 
 type DepEdge struct {
@@ -314,6 +320,7 @@ func toTaskView(t priority.Task, m sched.Meta) TaskView {
 		Attempts:    m.Attempts,
 		Cancels:     m.Cancels,
 		Reason:      m.Reason,
+		Caller:      m.Caller,
 	}
 	if !t.Submitted.IsZero() {
 		tv.Submitted = t.Submitted.UTC().Format(time.RFC3339)

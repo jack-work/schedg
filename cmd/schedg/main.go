@@ -293,14 +293,28 @@ func sortedIDs(m map[string]priority.Task) []string {
 
 func cmdNext(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: schedg next <name>")
+		return fmt.Errorf("usage: schedg next <name> [--caller <id>]")
 	}
-	q, err := open(args[0])
+	name := args[0]
+	var caller string
+	for i := 1; i < len(args); i++ {
+		if args[i] == "--caller" && i+1 < len(args) {
+			i++
+			caller = args[i]
+		}
+	}
+	q, err := open(name)
 	if err != nil {
 		return err
 	}
 	defer q.Close()
-	t, ok := q.Next()
+	var t priority.Task
+	var ok bool
+	if caller != "" {
+		t, ok = q.NextFor(caller)
+	} else {
+		t, ok = q.Next()
+	}
 	if !ok {
 		fmt.Println("no ready tasks")
 		return nil

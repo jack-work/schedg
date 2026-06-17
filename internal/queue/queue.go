@@ -161,6 +161,7 @@ func (q *Queue) Expired() []string { return q.expired }
 func (q *Queue) SubmitErrors() []error { return q.submitErrs }
 
 func (q *Queue) Next() (priority.Task, bool)            { return q.sched.Next() }
+func (q *Queue) NextFor(caller string) (priority.Task, bool) { return q.sched.NextFor(caller) }
 func (q *Queue) Peek() (priority.Task, bool)            { return q.sched.Peek() }
 func (q *Queue) Complete(id string) error               { return q.sched.Complete(id) }
 func (q *Queue) Cancel(id, reason string) (bool, error) { return q.sched.Cancel(id, reason) }

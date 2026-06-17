@@ -8,3 +8,4 @@ data/*.db-wal
 data/*.db-shm
 data/*.state.json
 schedg-web.exe
+*.exe

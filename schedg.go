@@ -160,6 +160,12 @@ func (db *DB) Next() (Task, bool) {
 	return fromInternal(t), ok
 }
 
+// NextFor leases the highest-priority ready task, recording the caller identity.
+func (db *DB) NextFor(caller string) (Task, bool) {
+	t, ok := db.q.NextFor(caller)
+	return fromInternal(t), ok
+}
+
 // Peek shows the highest-priority ready task without leasing it.
 func (db *DB) Peek() (Task, bool) {
 	t, ok := db.q.Peek()

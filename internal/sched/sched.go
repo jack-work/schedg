@@ -29,6 +29,7 @@ type Meta struct {
 	Cancels  int       `json:"cancels,omitempty"`  // times released or lease-expired
 	LeasedAt time.Time `json:"leased_at,omitempty"`
 	Reason   string    `json:"reason,omitempty"` // last cancel/fail reason
+	Caller   string    `json:"caller,omitempty"` // who leased this (e.g. angl name)
 }
 
 type Scheduler struct {
@@ -222,6 +223,10 @@ func (s *Scheduler) createsCycle(id string, deps []string) bool {
 
 // Next leases the highest-priority ready task (ready -> inflight).
 func (s *Scheduler) Next() (priority.Task, bool) {
+	return s.NextFor("")
+}
+
+func (s *Scheduler) NextFor(caller string) (priority.Task, bool) {
 	t, ok := s.ready.Pop()
 	if !ok {
 		return t, false
@@ -231,6 +236,7 @@ func (s *Scheduler) Next() (priority.Task, bool) {
 	m.Attempts++
 	m.LeasedAt = s.now()
 	m.Reason = ""
+	m.Caller = caller
 	s.meta[t.ID] = m
 	return t, true
 }
