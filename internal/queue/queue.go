@@ -182,7 +182,8 @@ func (q *Queue) Blocked() map[string][]string           { return q.sched.Blocked
 func (q *Queue) Inflight() map[string]priority.Task     { return q.sched.InflightTasks() }
 func (q *Queue) Dead() map[string]priority.Task         { return q.sched.DeadTasks() }
 func (q *Queue) BlockedAll() map[string]priority.Task    { return q.sched.BlockedAllTasks() }
-func (q *Queue) CompletedIDs() []string                  { return q.sched.CompletedIDs() }
+func (q *Queue) CompletedIDs() []string                    { return q.sched.CompletedIDs() }
+func (q *Queue) CompletedTasks() map[string]priority.Task  { return q.sched.CompletedTasks() }
 func (q *Queue) Meta(id string) sched.Meta               { return q.sched.Meta(id) }
 
 func (q *Queue) Init(ctx context.Context, repo string) error {

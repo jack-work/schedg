@@ -197,7 +197,7 @@ type QueueSnapshot struct {
 	Blocked    []TaskView          `json:"blocked"`
 	Inflight   []TaskView          `json:"inflight"`
 	Dead       []TaskView          `json:"dead"`
-	Completed  []string            `json:"completed"`
+	Completed  []TaskView          `json:"completed"`
 	Deps       []DepEdge           `json:"deps"`
 	BlockedBy  map[string][]string `json:"blockedBy"`
 	Counts     map[string]int      `json:"counts"`
@@ -275,7 +275,9 @@ func (s *Server) snapshot(name string) (*QueueSnapshot, error) {
 		snap.Dead = append(snap.Dead, toTaskView(t, q.Meta(id)))
 	}
 
-	snap.Completed = q.CompletedIDs()
+	for id, t := range q.CompletedTasks() {
+		snap.Completed = append(snap.Completed, toTaskView(t, q.Meta(id)))
+	}
 
 	for taskID, deps := range blockedBy {
 		for _, depID := range deps {
@@ -297,7 +299,7 @@ func (s *Server) snapshot(name string) (*QueueSnapshot, error) {
 		snap.Dead = []TaskView{}
 	}
 	if snap.Completed == nil {
-		snap.Completed = []string{}
+		snap.Completed = []TaskView{}
 	}
 	if snap.Deps == nil {
 		snap.Deps = []DepEdge{}

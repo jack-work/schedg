@@ -41,7 +41,7 @@ interface QueueSnapshot {
   blocked: TaskView[];
   inflight: TaskView[];
   dead: TaskView[];
-  completed: string[];
+  completed: TaskView[];
   deps: DepEdge[];
   blockedBy: Record<string, string[]>;
   counts: Record<string, number>;
@@ -182,11 +182,7 @@ export function App() {
       blocked: snapshot.blocked,
       inflight: snapshot.inflight,
       dead: snapshot.dead,
-      completed: snapshot.completed.map((id) => ({
-        id,
-        title: `#${id}`,
-        priority: 0,
-      })),
+      completed: snapshot.completed,
     };
     const all = lists[activeTab] || [];
     if (!search) return all;
@@ -619,7 +615,7 @@ function TaskDetail({
       ? "dead"
       : snapshot.blocked.find((t) => t.id === task.id)
         ? "blocked"
-        : snapshot.completed.includes(task.id)
+        : snapshot.completed.some((t) => t.id === task.id)
           ? "completed"
           : "ready";
 
@@ -816,7 +812,7 @@ function DepGraph({
     if (snapshot.inflight.find((t) => t.id === id)) return "inflight";
     if (snapshot.dead.find((t) => t.id === id)) return "dead";
     if (snapshot.blocked.find((t) => t.id === id)) return "blocked";
-    if (snapshot.completed.includes(id)) return "completed";
+    if (snapshot.completed.some((t) => t.id === id)) return "completed";
     return "ready";
   };
 

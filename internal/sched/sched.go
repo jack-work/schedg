@@ -39,7 +39,7 @@ type Scheduler struct {
 	blocked    map[string]priority.Task
 	inflight   map[string]priority.Task
 	dead       map[string]priority.Task
-	completed  map[string]bool
+	completed  map[string]priority.Task
 	dependents map[string][]string
 	inDegree   map[string]int
 	meta       map[string]Meta
@@ -52,7 +52,7 @@ type Snapshot struct {
 	Blocked    map[string]priority.Task `json:"blocked"`
 	Inflight   map[string]priority.Task `json:"inflight"`
 	Dead       map[string]priority.Task `json:"dead"`
-	Completed  []string                 `json:"completed"`
+	Completed  map[string]priority.Task `json:"completed"`
 	Dependents map[string][]string      `json:"dependents"`
 	InDegree   map[string]int           `json:"in_degree"`
 	Meta       map[string]Meta          `json:"meta"`
@@ -67,7 +67,7 @@ func New(cmp priority.Comparator, maxCancels int) *Scheduler {
 		blocked:    map[string]priority.Task{},
 		inflight:   map[string]priority.Task{},
 		dead:       map[string]priority.Task{},
-		completed:  map[string]bool{},
+		completed:  map[string]priority.Task{},
 		dependents: map[string][]string{},
 		inDegree:   map[string]int{},
 		meta:       map[string]Meta{},
@@ -88,8 +88,8 @@ func Restore(cmp priority.Comparator, s Snapshot, maxCancels int) *Scheduler {
 	if s.Dead != nil {
 		sc.dead = s.Dead
 	}
-	for _, id := range s.Completed {
-		sc.completed[id] = true
+	if s.Completed != nil {
+		sc.completed = s.Completed
 	}
 	if s.Dependents != nil {
 		sc.dependents = s.Dependents
@@ -106,9 +106,9 @@ func Restore(cmp priority.Comparator, s Snapshot, maxCancels int) *Scheduler {
 
 // SeedCompleted marks ids complete without unblocking (used when rebuilding
 // after source drift so deps on done work are filtered at Submit).
-func (s *Scheduler) SeedCompleted(ids []string) {
-	for _, id := range ids {
-		s.completed[id] = true
+func (s *Scheduler) SeedCompleted(completed map[string]priority.Task) {
+	for id, t := range completed {
+		s.completed[id] = t
 	}
 }
 
@@ -144,7 +144,7 @@ func (s *Scheduler) Has(id string) bool {
 	if _, ok := s.dead[id]; ok {
 		return true
 	}
-	if s.completed[id] {
+	if _, ok := s.completed[id]; ok {
 		return true
 	}
 	for _, t := range s.ready.Items() {
@@ -155,7 +155,10 @@ func (s *Scheduler) Has(id string) bool {
 	return false
 }
 
-func (s *Scheduler) Completed(id string) bool { return s.completed[id] }
+func (s *Scheduler) Completed(id string) bool {
+	_, ok := s.completed[id]
+	return ok
+}
 func (s *Scheduler) Buried(id string) bool    { _, ok := s.dead[id]; return ok }
 
 // Submit accepts a task with optional dependency ids. Deps already completed
@@ -170,7 +173,7 @@ func (s *Scheduler) Submit(t priority.Task, deps []string) error {
 
 	var eff []string
 	for _, d := range deps {
-		if !s.completed[d] {
+		if _, done := s.completed[d]; !done {
 			eff = append(eff, d)
 		}
 	}
@@ -244,11 +247,12 @@ func (s *Scheduler) NextFor(caller string) (priority.Task, bool) {
 func (s *Scheduler) Peek() (priority.Task, bool) { return s.ready.Peek() }
 
 func (s *Scheduler) Complete(id string) error {
-	if _, ok := s.inflight[id]; !ok {
+	t, ok := s.inflight[id]
+	if !ok {
 		return fmt.Errorf("complete(%s): task is not in-flight", id)
 	}
 	delete(s.inflight, id)
-	s.completed[id] = true
+	s.completed[id] = t
 	m := s.meta[id]
 	m.LeasedAt = time.Time{}
 	s.meta[id] = m
@@ -405,6 +409,12 @@ func (s *Scheduler) RefreshFields(fieldMap map[string]map[string]string) {
 			s.dead[id] = t
 		}
 	}
+	for id, t := range s.completed {
+		if f, ok := fieldMap[id]; ok {
+			t.Fields = f
+			s.completed[id] = t
+		}
+	}
 }
 
 func (s *Scheduler) CompletedIDs() []string {
@@ -429,18 +439,16 @@ func (s *Scheduler) BlockedTasks() map[string][]string {
 	return out
 }
 
+// CompletedTasks returns the full task data for completed items.
+func (s *Scheduler) CompletedTasks() map[string]priority.Task { return s.completed }
+
 func (s *Scheduler) Snapshot() Snapshot {
-	completed := make([]string, 0, len(s.completed))
-	for id := range s.completed {
-		completed = append(completed, id)
-	}
-	sort.Strings(completed)
 	return Snapshot{
 		Ready:      append([]priority.Task(nil), s.ready.Items()...),
 		Blocked:    s.blocked,
 		Inflight:   s.inflight,
 		Dead:       s.dead,
-		Completed:  completed,
+		Completed:  s.completed,
 		Dependents: s.dependents,
 		InDegree:   s.inDegree,
 		Meta:       s.meta,
