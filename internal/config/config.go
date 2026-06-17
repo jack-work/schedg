@@ -12,12 +12,13 @@ import (
 
 type DB struct {
 	Name       string `json:"name"`
-	Driver     string `json:"driver"`                // e.g. "dolt"
-	Path       string `json:"path"`                  // data-dir / DSN
+	Driver     string `json:"driver"`                // e.g. "dolt", "sqlite"
+	Path       string `json:"path"`                  // data-dir / DSN / file path
 	Repo       string `json:"repo"`                  // repo location this queue serves
 	Comparator string `json:"comparator"`            // priority module name; "" => default
 	MaxCancels int    `json:"max_cancels,omitempty"` // auto-bury after N cancels; 0 => unlimited
 	LeaseTTL   string `json:"lease_ttl,omitempty"`   // e.g. "10m"; "" => no lease expiry
+	StatePath  string `json:"state_path,omitempty"` // override queue state path; "" => default
 }
 
 type Config struct {

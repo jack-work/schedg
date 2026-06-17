@@ -1,6 +1,6 @@
-// schedg — a priority queue with dependency resolution layered, read-only, over
-// a Dolt (or other SQL) task catalog. State persists in a serialized heap file
-// with a source checksum for drift detection.
+// schedg - a priority queue with dependency resolution layered over a SQL task
+// catalog (Dolt or SQLite). State persists in a serialized heap file with a
+// source checksum for drift detection.
 package main
 
 import (
@@ -16,6 +16,7 @@ import (
 	"github.com/jack-work/schedg/internal/config"
 	"github.com/jack-work/schedg/internal/priority"
 	"github.com/jack-work/schedg/internal/queue"
+	"github.com/jack-work/schedg/internal/schema"
 	"github.com/jack-work/schedg/internal/source"
 )
 
@@ -49,6 +50,18 @@ func main() {
 		err = cmdSync(args)
 	case "sql":
 		err = cmdSQL(args)
+	case "add":
+		err = cmdAdd(args)
+	case "rm", "remove":
+		err = cmdRemove(args)
+	case "update":
+		err = cmdUpdate(args)
+	case "mark-done":
+		err = cmdMarkDone(args)
+	case "add-dep":
+		err = cmdAddDep(args)
+	case "rm-dep":
+		err = cmdRemoveDep(args)
 	case "comparators":
 		for _, n := range priority.Names() {
 			fmt.Println(n)
@@ -67,38 +80,51 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `schedg — dependency-aware priority queue over a SQL task catalog
+	fmt.Fprint(os.Stderr, `schedg - dependency-aware priority queue over a SQL task catalog
 
-  schedg init <name> --data-dir <path> [--repo <path>] [--driver dolt] [--comparator <name>]
+  schedg init <name> --data-dir <path> [--driver sqlite|dolt] [--repo <path>]
+                     [--comparator <name>] [--max-cancels N] [--lease-ttl D]
   schedg dbs
-  schedg status <name>          # ready/blocked/in-flight/completed + ready list
-  schedg next <name>            # pop the highest-priority ready task
-  schedg peek <name>            # show it without popping
-  schedg complete <name> <id>            # success (terminal)
-  schedg cancel <name> <id> [reason]     # release to ready; auto-buries at max-cancels
-  schedg fail <name> <id> [reason]       # bury to dead-letter (terminal)
-  schedg requeue <name> <id>             # kick a buried task back to ready
-  schedg sync <name>            # reload from source, report drift
-  schedg sql <name> -- <args>   # passthrough to the backing tool (e.g. dolt)
-  schedg comparators            # list registered ranking modules
+
+  Task CRUD (writes to the database):
+  schedg add <db> <title> [--priority N] [--description TEXT]
+  schedg update <db> <id> <title> [--priority N] [--description TEXT]
+  schedg rm <db> <id>
+  schedg mark-done <db> <id>
+  schedg add-dep <db> <task-id> <dep-id>
+  schedg rm-dep <db> <task-id> <dep-id>
+
+  Queue operations (state file only):
+  schedg status <db>
+  schedg peek <db>
+  schedg next <db>
+  schedg complete <db> <id>
+  schedg cancel <db> <id> [reason]
+  schedg fail <db> <id> [reason]
+  schedg requeue <db> <id>
+  schedg sync <db>
+  schedg sql <db> -- <args>
+  schedg comparators
 `)
 }
 
+// --- init / dbs ---
+
 func cmdInit(args []string) error {
 	if len(args) < 1 || strings.HasPrefix(args[0], "-") {
-		return fmt.Errorf("usage: schedg init <name> --data-dir <path> [--repo <path>]")
+		return fmt.Errorf("usage: schedg init <name> --data-dir <path> [--driver sqlite|dolt]")
 	}
 	name := args[0]
 	fs := flag.NewFlagSet("init", flag.ExitOnError)
-	driver := fs.String("driver", "dolt", "source driver")
-	dataDir := fs.String("data-dir", "", "source data-dir / DSN")
+	driver := fs.String("driver", "dolt", "source driver (dolt, sqlite)")
+	dataDir := fs.String("data-dir", "", "source data-dir / file path")
 	repo := fs.String("repo", "", "repo location this queue serves")
 	cmp := fs.String("comparator", "", "priority module (default: priority-submitted)")
 	maxCancels := fs.Int("max-cancels", 0, "auto-bury a task after N cancels (0 = unlimited)")
 	leaseTTL := fs.String("lease-ttl", "", "auto-cancel in-flight tasks idle longer than this (e.g. 10m); empty = off")
 	fs.Parse(args[1:])
 	if *dataDir == "" {
-		return fmt.Errorf("usage: schedg init <name> --data-dir <path> [--repo <path>]")
+		return fmt.Errorf("usage: schedg init <name> --data-dir <path>")
 	}
 	if *leaseTTL != "" {
 		if _, err := time.ParseDuration(*leaseTTL); err != nil {
@@ -157,6 +183,8 @@ func cmdDBs(args []string) error {
 	return w.Flush()
 }
 
+// --- helpers ---
+
 func open(name string) (*queue.Queue, error) {
 	cfg, err := config.Load()
 	if err != nil {
@@ -171,7 +199,7 @@ func open(name string) (*queue.Queue, error) {
 		return nil, err
 	}
 	if q.Drifted() {
-		fmt.Fprintln(os.Stderr, "note: source changed since last run — queue state reconciled")
+		fmt.Fprintln(os.Stderr, "note: source changed since last run - queue state reconciled")
 	}
 	if ex := q.Expired(); len(ex) > 0 {
 		fmt.Fprintf(os.Stderr, "note: %d lease(s) expired, returned to queue: %s\n", len(ex), strings.Join(prefix(ex, "#"), " "))
@@ -194,6 +222,8 @@ func label(t priority.Task) string {
 func printTask(t priority.Task) {
 	fmt.Printf("#%s\tp%d\t%s\n", t.ID, t.Priority, label(t))
 }
+
+// --- queue commands ---
 
 func cmdStatus(args []string) error {
 	if len(args) < 1 {
@@ -328,7 +358,7 @@ func cmdCancel(args []string) error {
 		return err
 	}
 	if buried {
-		fmt.Printf("cancelled #%s — reached max-cancels, buried to dead-letter\n", args[1])
+		fmt.Printf("cancelled #%s - reached max-cancels, buried to dead-letter\n", args[1])
 	} else {
 		fmt.Printf("cancelled #%s (returned to queue, %d cancels)\n", args[1], q.Meta(args[1]).Cancels)
 	}
@@ -387,7 +417,6 @@ func cmdSync(args []string) error {
 }
 
 func cmdSQL(args []string) error {
-	// schedg sql <name> -- <passthrough args>
 	var name string
 	var rest []string
 	for i, a := range args {
@@ -414,16 +443,142 @@ func cmdSQL(args []string) error {
 	if !ok {
 		return fmt.Errorf("no database %q registered", name)
 	}
-	src, err := source.Open(db.Driver, source.Config{Path: db.Path})
+	sc := schema.Default(db.Driver)
+	src, err := source.Open(db.Driver, source.Config{Path: db.Path, Schema: sc})
 	if err != nil {
 		return err
 	}
 	defer src.Close()
 	if len(rest) == 0 {
-		rest = []string{"sql"} // interactive shell
+		rest = []string{"sql"}
 	}
 	return src.Passthrough(context.Background(), rest)
 }
+
+// --- CRUD commands ---
+
+func cmdAdd(args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("usage: schedg add <db> <title> [--priority N] [--description TEXT]")
+	}
+	name, title := args[0], args[1]
+	fs := flag.NewFlagSet("add", flag.ExitOnError)
+	prio := fs.Int64("priority", 0, "task priority")
+	desc := fs.String("description", "", "task description")
+	fs.Parse(args[2:])
+
+	q, err := open(name)
+	if err != nil {
+		return err
+	}
+	defer q.Close()
+
+	id, err := q.Add(context.Background(), title, source.TaskOpts{
+		Priority:    *prio,
+		Description: *desc,
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("added #%s p%d %s\n", id, *prio, title)
+	return nil
+}
+
+func cmdUpdate(args []string) error {
+	if len(args) < 3 {
+		return fmt.Errorf("usage: schedg update <db> <id> <title> [--priority N] [--description TEXT]")
+	}
+	name, id, title := args[0], args[1], args[2]
+	fs := flag.NewFlagSet("update", flag.ExitOnError)
+	prio := fs.Int64("priority", 0, "task priority")
+	desc := fs.String("description", "", "task description")
+	fs.Parse(args[3:])
+
+	q, err := open(name)
+	if err != nil {
+		return err
+	}
+	defer q.Close()
+
+	if err := q.Update(context.Background(), id, title, source.TaskOpts{
+		Priority:    *prio,
+		Description: *desc,
+	}); err != nil {
+		return err
+	}
+	fmt.Printf("updated #%s\n", id)
+	return nil
+}
+
+func cmdRemove(args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("usage: schedg rm <db> <id>")
+	}
+	q, err := open(args[0])
+	if err != nil {
+		return err
+	}
+	defer q.Close()
+
+	if err := q.Remove(context.Background(), args[1]); err != nil {
+		return err
+	}
+	fmt.Printf("removed #%s\n", args[1])
+	return nil
+}
+
+func cmdMarkDone(args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("usage: schedg mark-done <db> <id>")
+	}
+	q, err := open(args[0])
+	if err != nil {
+		return err
+	}
+	defer q.Close()
+
+	if err := q.SetDone(context.Background(), args[1]); err != nil {
+		return err
+	}
+	fmt.Printf("marked #%s done\n", args[1])
+	return nil
+}
+
+func cmdAddDep(args []string) error {
+	if len(args) < 3 {
+		return fmt.Errorf("usage: schedg add-dep <db> <task-id> <dep-id>")
+	}
+	q, err := open(args[0])
+	if err != nil {
+		return err
+	}
+	defer q.Close()
+
+	if err := q.AddDep(context.Background(), args[1], args[2]); err != nil {
+		return err
+	}
+	fmt.Printf("added dependency: #%s depends on #%s\n", args[1], args[2])
+	return nil
+}
+
+func cmdRemoveDep(args []string) error {
+	if len(args) < 3 {
+		return fmt.Errorf("usage: schedg rm-dep <db> <task-id> <dep-id>")
+	}
+	q, err := open(args[0])
+	if err != nil {
+		return err
+	}
+	defer q.Close()
+
+	if err := q.RemoveDep(context.Background(), args[1], args[2]); err != nil {
+		return err
+	}
+	fmt.Printf("removed dependency: #%s no longer depends on #%s\n", args[1], args[2])
+	return nil
+}
+
+// --- utils ---
 
 func prefix(ss []string, p string) []string {
 	out := make([]string, len(ss))

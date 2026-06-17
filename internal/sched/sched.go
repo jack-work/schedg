@@ -369,7 +369,17 @@ func (s *Scheduler) ReadyTasks() []priority.Task {
 
 func (s *Scheduler) InflightTasks() map[string]priority.Task { return s.inflight }
 func (s *Scheduler) DeadTasks() map[string]priority.Task     { return s.dead }
+func (s *Scheduler) BlockedAllTasks() map[string]priority.Task { return s.blocked }
 func (s *Scheduler) Meta(id string) Meta                     { return s.meta[id] }
+
+func (s *Scheduler) CompletedIDs() []string {
+	out := make([]string, 0, len(s.completed))
+	for id := range s.completed {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}
 
 // BlockedTasks maps a blocked id to its still-unmet dependency ids.
 func (s *Scheduler) BlockedTasks() map[string][]string {

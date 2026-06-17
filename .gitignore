@@ -1,3 +1,9 @@
 /schedg
 /dist/
 *.test
+web/node_modules/
+web/dist/
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/*.state.json

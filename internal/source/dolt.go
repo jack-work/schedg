@@ -17,8 +17,10 @@ import (
 func init() { Register("dolt", newDolt) }
 
 type dolt struct {
-	dir string
-	sc  schema.Schema
+	dir    string
+	sc     schema.Schema
+	colHit map[string]bool // cached hasColumn results
+	tblHit map[string]bool // cached hasTable results
 }
 
 func newDolt(cfg Config) (Source, error) {
@@ -35,7 +37,6 @@ func (d *dolt) cmd(ctx context.Context, args ...string) *exec.Cmd {
 	return exec.CommandContext(ctx, "dolt", full...)
 }
 
-// query runs a SELECT and returns rows as decoded maps.
 func (d *dolt) query(ctx context.Context, q string) ([]map[string]any, error) {
 	var out, errb bytes.Buffer
 	c := d.cmd(ctx, "sql", "-r", "json", "-q", q)
@@ -66,20 +67,42 @@ func (d *dolt) exec(ctx context.Context, q string) error {
 }
 
 func (d *dolt) hasColumn(ctx context.Context, table, col string) bool {
+	key := table + "." + col
+	if v, ok := d.colHit[key]; ok {
+		return v
+	}
 	rows, err := d.query(ctx, fmt.Sprintf(
 		"SELECT 1 AS x FROM information_schema.columns WHERE table_name=%s AND column_name=%s LIMIT 1;",
 		sqlStr(table), sqlStr(col)))
-	return err == nil && len(rows) > 0
+	v := err == nil && len(rows) > 0
+	if d.colHit == nil {
+		d.colHit = map[string]bool{}
+	}
+	d.colHit[key] = v
+	return v
 }
 
 func (d *dolt) hasTable(ctx context.Context, table string) bool {
+	if v, ok := d.tblHit[table]; ok {
+		return v
+	}
 	rows, err := d.query(ctx, fmt.Sprintf(
 		"SELECT 1 AS x FROM information_schema.tables WHERE table_name=%s LIMIT 1;", sqlStr(table)))
-	return err == nil && len(rows) > 0
+	v := err == nil && len(rows) > 0
+	if d.tblHit == nil {
+		d.tblHit = map[string]bool{}
+	}
+	d.tblHit[table] = v
+	return v
 }
 
 func (d *dolt) Load(ctx context.Context) ([]Row, error) {
 	sc := d.sc
+
+	if !d.hasTable(ctx, sc.Table) {
+		return nil, nil
+	}
+
 	idExpr := sc.PK
 
 	prio := "0"
@@ -94,13 +117,17 @@ func (d *dolt) Load(ctx context.Context) ([]Row, error) {
 	if sc.LabelCol != "" && d.hasColumn(ctx, sc.Table, sc.LabelCol) {
 		lbl = sc.LabelCol
 	}
+	desc := "NULL"
+	if sc.DescCol != "" && d.hasColumn(ctx, sc.Table, sc.DescCol) {
+		desc = sc.DescCol
+	}
 	where := ""
 	if sc.DoneCol != "" && d.hasColumn(ctx, sc.Table, sc.DoneCol) {
 		where = fmt.Sprintf(" WHERE %s=0", sc.DoneCol)
 	}
 
-	q := fmt.Sprintf("SELECT %s AS id, %s AS priority, %s AS submitted, %s AS label FROM %s%s;",
-		idExpr, prio, sub, lbl, sc.Table, where)
+	q := fmt.Sprintf("SELECT %s AS id, %s AS priority, %s AS submitted, %s AS label, %s AS description FROM %s%s;",
+		idExpr, prio, sub, lbl, desc, sc.Table, where)
 	raw, err := d.query(ctx, q)
 	if err != nil {
 		return nil, err
@@ -132,9 +159,13 @@ func (d *dolt) Load(ctx context.Context) ([]Row, error) {
 			Priority:  toInt64(r["priority"]),
 			Submitted: toTime(r["submitted"]),
 			Deps:      deps[id],
+			Fields:    map[string]string{},
 		}
 		if l := toStr(r["label"]); l != "" {
-			row.Fields = map[string]string{"label": l}
+			row.Fields["label"] = l
+		}
+		if d := toStr(r["description"]); d != "" {
+			row.Fields["description"] = d
 		}
 		out = append(out, row)
 	}
@@ -159,7 +190,6 @@ func (d *dolt) InitSchema(ctx context.Context) error {
 
 func (d *dolt) EnsureSavedQueries(ctx context.Context) error {
 	for _, sq := range d.sc.SavedQueries {
-		// dolt_query_catalog upsert keyed on id (= name).
 		q := fmt.Sprintf(
 			"REPLACE INTO dolt_query_catalog (id, display_order, name, query, description) "+
 				"VALUES (%s, (SELECT COALESCE(MAX(display_order),0)+1 FROM dolt_query_catalog AS c), %s, %s, %s);",
@@ -183,6 +213,92 @@ func (d *dolt) Passthrough(ctx context.Context, args []string) error {
 	c := d.cmd(ctx, args...)
 	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
 	return c.Run()
+}
+
+// --- CRUD ---
+
+func (d *dolt) AddTask(ctx context.Context, title string, opts TaskOpts) (string, error) {
+	sc := d.sc
+	cols := []string{sc.LabelCol}
+	vals := []string{sqlStr(title)}
+
+	if sc.PriorityCol != "" && d.hasColumn(ctx, sc.Table, sc.PriorityCol) {
+		cols = append(cols, sc.PriorityCol)
+		vals = append(vals, strconv.FormatInt(opts.Priority, 10))
+	}
+	if opts.Description != "" && sc.DescCol != "" {
+		cols = append(cols, sc.DescCol)
+		vals = append(vals, sqlStr(opts.Description))
+	}
+	if opts.ParentID != "" {
+		cols = append(cols, "parent_id")
+		vals = append(vals, opts.ParentID)
+	}
+
+	q := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s);",
+		sc.Table, strings.Join(cols, ", "), strings.Join(vals, ", "))
+	if err := d.exec(ctx, q); err != nil {
+		return "", err
+	}
+
+	rows, err := d.query(ctx, "SELECT LAST_INSERT_ID() AS id;")
+	if err != nil || len(rows) == 0 {
+		return "", fmt.Errorf("dolt: could not retrieve last insert id: %v", err)
+	}
+	return toStr(rows[0]["id"]), nil
+}
+
+func (d *dolt) UpdateTask(ctx context.Context, id string, title string, opts TaskOpts) error {
+	sc := d.sc
+	sets := []string{fmt.Sprintf("%s=%s", sc.LabelCol, sqlStr(title))}
+
+	if sc.PriorityCol != "" && d.hasColumn(ctx, sc.Table, sc.PriorityCol) {
+		sets = append(sets, fmt.Sprintf("%s=%d", sc.PriorityCol, opts.Priority))
+	}
+	if d.sc.DescCol != "" {
+		sets = append(sets, fmt.Sprintf("%s=%s", d.sc.DescCol, sqlStr(opts.Description)))
+	}
+	if opts.ParentID != "" {
+		sets = append(sets, fmt.Sprintf("parent_id=%s", opts.ParentID))
+	} else {
+		sets = append(sets, "parent_id=NULL")
+	}
+
+	return d.exec(ctx, fmt.Sprintf("UPDATE %s SET %s WHERE %s=%s;",
+		sc.Table, strings.Join(sets, ", "), sc.PK, sqlStr(id)))
+}
+
+func (d *dolt) RemoveTask(ctx context.Context, id string) error {
+	return d.exec(ctx, fmt.Sprintf("DELETE FROM %s WHERE %s=%s;",
+		d.sc.Table, d.sc.PK, sqlStr(id)))
+}
+
+func (d *dolt) SetDone(ctx context.Context, id string, done bool) error {
+	if d.sc.DoneCol == "" {
+		return fmt.Errorf("schema has no done column")
+	}
+	val := "0"
+	if done {
+		val = "1"
+	}
+	return d.exec(ctx, fmt.Sprintf("UPDATE %s SET %s=%s WHERE %s=%s;",
+		d.sc.Table, d.sc.DoneCol, val, d.sc.PK, sqlStr(id)))
+}
+
+func (d *dolt) AddDep(ctx context.Context, taskID, depID string) error {
+	if d.sc.DepsTable == "" {
+		return fmt.Errorf("schema has no dependency table")
+	}
+	return d.exec(ctx, fmt.Sprintf("INSERT INTO %s (%s, %s) VALUES (%s, %s);",
+		d.sc.DepsTable, d.sc.DepFrom, d.sc.DepTo, sqlStr(taskID), sqlStr(depID)))
+}
+
+func (d *dolt) RemoveDep(ctx context.Context, taskID, depID string) error {
+	if d.sc.DepsTable == "" {
+		return fmt.Errorf("schema has no dependency table")
+	}
+	return d.exec(ctx, fmt.Sprintf("DELETE FROM %s WHERE %s=%s AND %s=%s;",
+		d.sc.DepsTable, d.sc.DepFrom, sqlStr(taskID), d.sc.DepTo, sqlStr(depID)))
 }
 
 func (d *dolt) Close() error { return nil }
@@ -223,24 +339,6 @@ func toInt64(v any) int64 {
 	}
 }
 
-var timeLayouts = []string{
-	time.RFC3339Nano,
-	time.RFC3339,
-	"2006-01-02 15:04:05.999999 -0700 MST",
-	"2006-01-02 15:04:05 -0700 MST",
-	"2006-01-02 15:04:05.999999",
-	"2006-01-02 15:04:05",
-}
-
 func toTime(v any) time.Time {
-	s := toStr(v)
-	if s == "" {
-		return time.Time{}
-	}
-	for _, l := range timeLayouts {
-		if t, err := time.Parse(l, s); err == nil {
-			return t
-		}
-	}
-	return time.Time{}
+	return parseTime(toStr(v))
 }
