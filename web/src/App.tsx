@@ -627,8 +627,6 @@ function TaskDetail({
 
   return (
     <div className="sg-detail">
-      <img src="/ornaments/half-left.png" className="sg-corner sg-corner-tl" alt="" />
-      <img src="/ornaments/half-right.png" className="sg-corner sg-corner-tr" alt="" />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <button className="sg-back-btn" onClick={onBack} style={{ margin: 0 }}>
           &larr; Back
