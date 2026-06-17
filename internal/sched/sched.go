@@ -378,6 +378,35 @@ func (s *Scheduler) DeadTasks() map[string]priority.Task     { return s.dead }
 func (s *Scheduler) BlockedAllTasks() map[string]priority.Task { return s.blocked }
 func (s *Scheduler) Meta(id string) Meta                     { return s.meta[id] }
 
+// RefreshFields updates the Fields map on all live tasks from a fresh source
+// read. This patches tasks restored from a snapshot that may predate newly
+// loaded columns (e.g. description).
+func (s *Scheduler) RefreshFields(fieldMap map[string]map[string]string) {
+	for i := range s.ready.Items() {
+		if f, ok := fieldMap[s.ready.Items()[i].ID]; ok {
+			s.ready.Items()[i].Fields = f
+		}
+	}
+	for id, t := range s.blocked {
+		if f, ok := fieldMap[id]; ok {
+			t.Fields = f
+			s.blocked[id] = t
+		}
+	}
+	for id, t := range s.inflight {
+		if f, ok := fieldMap[id]; ok {
+			t.Fields = f
+			s.inflight[id] = t
+		}
+	}
+	for id, t := range s.dead {
+		if f, ok := fieldMap[id]; ok {
+			t.Fields = f
+			s.dead[id] = t
+		}
+	}
+}
+
 func (s *Scheduler) CompletedIDs() []string {
 	out := make([]string, 0, len(s.completed))
 	for id := range s.completed {

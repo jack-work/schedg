@@ -104,6 +104,15 @@ func (q *Queue) load(ctx context.Context) error {
 
 	if st != nil && st.Version == stateVersion && st.Checksum == checksum && st.Comparator == q.cmp.Name() {
 		q.sched = sched.Restore(q.cmp, st.Snapshot, q.maxCancels)
+		// Refresh Fields from the live source rows -- the snapshot may
+		// predate columns added after it was written (e.g. description).
+		fieldMap := make(map[string]map[string]string, len(rows))
+		for _, r := range rows {
+			if len(r.Fields) > 0 {
+				fieldMap[r.ID] = r.Fields
+			}
+		}
+		q.sched.RefreshFields(fieldMap)
 		q.drift = false
 	} else {
 		var prev *sched.Snapshot

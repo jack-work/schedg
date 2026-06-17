@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -293,14 +294,20 @@ func sortedIDs(m map[string]priority.Task) []string {
 
 func cmdNext(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: schedg next <name> [--caller <id>]")
+		return fmt.Errorf("usage: schedg next <name> [--caller <id>] [--json]")
 	}
 	name := args[0]
 	var caller string
+	var asJSON bool
 	for i := 1; i < len(args); i++ {
-		if args[i] == "--caller" && i+1 < len(args) {
-			i++
-			caller = args[i]
+		switch args[i] {
+		case "--caller":
+			if i+1 < len(args) {
+				i++
+				caller = args[i]
+			}
+		case "--json":
+			asJSON = true
 		}
 	}
 	q, err := open(name)
@@ -316,11 +323,34 @@ func cmdNext(args []string) error {
 		t, ok = q.Next()
 	}
 	if !ok {
-		fmt.Println("no ready tasks")
+		if asJSON {
+			fmt.Println("{}")
+		} else {
+			fmt.Println("no ready tasks")
+		}
 		return nil
 	}
-	printTask(t)
+	if asJSON {
+		printTaskJSON(t)
+	} else {
+		printTask(t)
+	}
 	return q.Save()
+}
+
+func printTaskJSON(t priority.Task) {
+	out := map[string]interface{}{
+		"id":       t.ID,
+		"priority": t.Priority,
+		"title":    label(t),
+	}
+	if t.Fields != nil {
+		if d := t.Fields["description"]; d != "" {
+			out["description"] = d
+		}
+	}
+	data, _ := json.Marshal(out)
+	fmt.Println(string(data))
 }
 
 func cmdPeek(args []string) error {
