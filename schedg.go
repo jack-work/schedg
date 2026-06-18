@@ -14,6 +14,7 @@ package schedg
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/jack-work/schedg/internal/config"
@@ -114,6 +115,24 @@ func Init(ctx context.Context, opts Options) (*DB, error) {
 func Open(opts Options) (*DB, error) {
 	cdb := toConfigDB(opts)
 	q, err := queue.Open(cdb)
+	if err != nil {
+		return nil, err
+	}
+	return &DB{q: q}, nil
+}
+
+// OpenByName resolves a queue by name from the schedg config
+// (~/.config/schedg/config.json) and opens it.
+func OpenByName(name string) (*DB, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, fmt.Errorf("load schedg config: %w", err)
+	}
+	dbCfg, ok := cfg.Find(name)
+	if !ok {
+		return nil, fmt.Errorf("queue %q not found in schedg config", name)
+	}
+	q, err := queue.Open(*dbCfg)
 	if err != nil {
 		return nil, err
 	}

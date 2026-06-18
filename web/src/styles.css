@@ -123,24 +123,22 @@ body::before {
 
 /* Image ornaments */
 .sg-ornament-logo {
-  width: 22px;
-  height: 22px;
-  object-fit: cover;
-  border-radius: 2px;
-  vertical-align: -4px;
-  opacity: 0.6;
+  width: auto;
+  height: 28px;
+  object-fit: contain;
+  vertical-align: -6px;
+  opacity: 0.7;
   transition: opacity .3s;
-  filter: sepia(0.3) brightness(0.9);
+  margin-right: 2px;
 }
 .sg-logo:hover .sg-ornament-logo { opacity: 1; }
 
 .sg-ornament-live {
-  width: 10px;
-  height: 10px;
-  object-fit: cover;
-  border-radius: 1px;
-  vertical-align: -1px;
-  opacity: 0.5;
+  width: auto;
+  height: 16px;
+  object-fit: contain;
+  vertical-align: -3px;
+  opacity: 0.4;
 }
 
 .sg-ornament-card {
@@ -155,12 +153,10 @@ body::before {
 }
 
 .sg-ornament-help {
-  width: 36px;
-  height: 36px;
-  object-fit: cover;
-  border-radius: 2px;
-  opacity: 0.5;
-  filter: sepia(0.3);
+  width: auto;
+  height: 40px;
+  object-fit: contain;
+  opacity: 0.45;
 }
 .sg-help-header {
   display: flex;

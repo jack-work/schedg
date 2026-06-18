@@ -290,7 +290,7 @@ export function App() {
               window.history.replaceState(null, "", "#");
             }}
           >
-            <img src="/ornaments/square2.png" className="sg-ornament-logo" alt="" />{" "}schedg
+            <img src="/ornaments/beast.png" className="sg-ornament-logo" alt="" />{" "}schedg
           </h1>
           {selectedQueue && view !== "list" && (
             <span className="sg-breadcrumb">
@@ -316,7 +316,7 @@ export function App() {
         <div className="sg-header-right">
           {snapshot && (
             <span className="sg-live-dot" title={`Last update: ${snapshot.snapshotAt}`}>
-              <img src="/ornaments/square3.png" className="sg-ornament-live" alt="" /> LIVE
+              <img src="/ornaments/lighthouse.png" className="sg-ornament-live" alt="" /> LIVE
             </span>
           )}
           <button className="sg-hdr-btn" onClick={() => setView("logs")} title="Server logs (Ctrl+L)">
@@ -403,7 +403,7 @@ export function App() {
         <div className="sg-overlay" onClick={() => setHelpVisible(false)}>
           <div className="sg-help" onClick={(e) => e.stopPropagation()}>
             <div className="sg-help-header">
-              <img src="/ornaments/square3.png" className="sg-ornament-help" alt="" />
+              <img src="/ornaments/castle.png" className="sg-ornament-help" alt="" />
               <h2>Keyboard Shortcuts</h2>
             </div>
             <table>
@@ -458,7 +458,7 @@ function QueueList({
           className={`sg-queue-card ${i === focusedIdx ? "sg-focused" : ""}`}
           onClick={() => onSelect(q.name)}
         >
-          <div className="sg-qc-name"><img src="/ornaments/square1.png" className="sg-ornament-card" alt="" /> {q.name}</div>
+          <div className="sg-qc-name"><img src={`/ornaments/square${(i % 5) + 1}.png`} className="sg-ornament-card" alt="" /> {q.name}</div>
           <div className="sg-qc-meta">
             <span className="sg-badge sg-badge-driver">{q.driver}</span>
             <span className="sg-qc-path">{q.path}</span>

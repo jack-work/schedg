@@ -97,7 +97,7 @@ func sqliteDDL() []string {
 	return []string{
 		`CREATE TABLE IF NOT EXISTS todo (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            title       TEXT NOT NULL,
+            title       TEXT DEFAULT '',
             done        INTEGER NOT NULL DEFAULT 0,
             parent_id   INTEGER REFERENCES todo(id) ON DELETE CASCADE CHECK (parent_id != id),
             created_at  TEXT NOT NULL DEFAULT (datetime('now')),
