@@ -417,6 +417,38 @@ func (s *Scheduler) RefreshFields(fieldMap map[string]map[string]string) {
 	}
 }
 
+func (s *Scheduler) RefreshKV(kvMap map[string]map[string]string) {
+	for i := range s.ready.Items() {
+		if kv, ok := kvMap[s.ready.Items()[i].ID]; ok {
+			s.ready.Items()[i].KV = kv
+		}
+	}
+	for id, t := range s.blocked {
+		if kv, ok := kvMap[id]; ok {
+			t.KV = kv
+			s.blocked[id] = t
+		}
+	}
+	for id, t := range s.inflight {
+		if kv, ok := kvMap[id]; ok {
+			t.KV = kv
+			s.inflight[id] = t
+		}
+	}
+	for id, t := range s.dead {
+		if kv, ok := kvMap[id]; ok {
+			t.KV = kv
+			s.dead[id] = t
+		}
+	}
+	for id, t := range s.completed {
+		if kv, ok := kvMap[id]; ok {
+			t.KV = kv
+			s.completed[id] = t
+		}
+	}
+}
+
 func (s *Scheduler) CompletedIDs() []string {
 	out := make([]string, 0, len(s.completed))
 	for id := range s.completed {

@@ -107,12 +107,17 @@ func (q *Queue) load(ctx context.Context) error {
 		// Refresh Fields from the live source rows -- the snapshot may
 		// predate columns added after it was written (e.g. description).
 		fieldMap := make(map[string]map[string]string, len(rows))
+		kvMap := make(map[string]map[string]string, len(rows))
 		for _, r := range rows {
 			if len(r.Fields) > 0 {
 				fieldMap[r.ID] = r.Fields
 			}
+			if len(r.KV) > 0 {
+				kvMap[r.ID] = r.KV
+			}
 		}
 		q.sched.RefreshFields(fieldMap)
+		q.sched.RefreshKV(kvMap)
 		q.drift = false
 	} else {
 		var prev *sched.Snapshot
@@ -145,7 +150,7 @@ func (q *Queue) rebuild(rows []source.Row, prev *sched.Snapshot) []error {
 				continue
 			}
 		}
-		t := priority.Task{ID: r.ID, Priority: r.Priority, Submitted: r.Submitted, Fields: r.Fields}
+		t := priority.Task{ID: r.ID, Priority: r.Priority, Submitted: r.Submitted, Fields: r.Fields, KV: r.KV}
 		if err := sc.Submit(t, r.Deps); err != nil {
 			errs = append(errs, err)
 		}
@@ -252,6 +257,30 @@ func (q *Queue) AddDep(ctx context.Context, taskID, depID string) error {
 	return q.writeAndSync(ctx, func() error {
 		return q.src.AddDep(ctx, taskID, depID)
 	})
+}
+
+func (q *Queue) SetKV(ctx context.Context, taskID, key, value string) error {
+	return q.writeAndSync(ctx, func() error {
+		return q.src.SetKV(ctx, taskID, key, value)
+	})
+}
+
+func (q *Queue) DeleteKV(ctx context.Context, taskID, key string) error {
+	return q.writeAndSync(ctx, func() error {
+		return q.src.DeleteKV(ctx, taskID, key)
+	})
+}
+
+func (q *Queue) GetKV(ctx context.Context, taskID string) (map[string]string, error) {
+	return q.src.GetKV(ctx, taskID)
+}
+
+func (q *Queue) SetDBMeta(ctx context.Context, key, value string) error {
+	return q.src.SetDBMeta(ctx, key, value)
+}
+
+func (q *Queue) GetDBMeta(ctx context.Context) (map[string]string, error) {
+	return q.src.GetDBMeta(ctx)
 }
 
 func (q *Queue) RemoveDep(ctx context.Context, taskID, depID string) error {

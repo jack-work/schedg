@@ -15,6 +15,7 @@ type Task struct {
 	Submitted time.Time         `json:"submitted"`
 	Seq       int64             `json:"seq"`
 	Fields    map[string]string `json:"fields,omitempty"`
+	KV        map[string]string `json:"kv,omitempty"`
 }
 
 type Comparator interface {

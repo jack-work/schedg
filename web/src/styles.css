@@ -446,6 +446,63 @@ body::before {
 }
 .sg-copy-btn:hover { color: var(--gold); }
 
+.sg-task-kv-count {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-3);
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  padding: 0 5px;
+  line-height: 1.6;
+}
+
+/* ── Key-Value Annotations ────────────────────────────────────── */
+.sg-detail-kv {
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  padding: 14px 18px;
+  margin-top: 16px;
+}
+.sg-kv-heading {
+  font-family: var(--display);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--gold-dim);
+  margin-bottom: 10px;
+}
+.sg-kv-entry {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.sg-kv-entry:last-child { border-bottom: none; }
+.sg-kv-key {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--gold);
+  font-weight: 600;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sg-kv-val {
+  font-family: var(--serif);
+  font-size: 12px;
+  color: var(--text-1);
+  line-height: 1.6;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+}
+.sg-kv-val p { margin: 4px 0; }
+.sg-kv-val code {
+  font-family: var(--mono);
+  font-size: 11px;
+  background: var(--bg-3);
+  padding: 1px 4px;
+  color: var(--gold);
+}
+
 /* ── Split / Fullscreen ───────────────────────────────────────── */
 .sg-split {
   display: flex;

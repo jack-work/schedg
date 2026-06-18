@@ -181,8 +181,9 @@ type TaskView struct {
 	Attempts    int    `json:"attempts,omitempty"`
 	Cancels     int    `json:"cancels,omitempty"`
 	Reason      string `json:"reason,omitempty"`
-	LeasedAt    string `json:"leasedAt,omitempty"`
-	Caller      string `json:"caller,omitempty"`
+	LeasedAt    string            `json:"leasedAt,omitempty"`
+	Caller      string            `json:"caller,omitempty"`
+	KV          map[string]string `json:"kv,omitempty"`
 }
 
 type DepEdge struct {
@@ -201,6 +202,7 @@ type QueueSnapshot struct {
 	Deps       []DepEdge           `json:"deps"`
 	BlockedBy  map[string][]string `json:"blockedBy"`
 	Counts     map[string]int      `json:"counts"`
+	DBMeta     map[string]string   `json:"dbMeta,omitempty"`
 	SnapshotAt string              `json:"snapshotAt"`
 }
 
@@ -305,6 +307,9 @@ func (s *Server) snapshot(name string) (*QueueSnapshot, error) {
 		snap.Deps = []DepEdge{}
 	}
 
+	dbMeta, _ := q.GetDBMeta(context.Background())
+	snap.DBMeta = dbMeta
+
 	return snap, nil
 }
 
@@ -326,6 +331,9 @@ func toTaskView(t priority.Task, m sched.Meta) TaskView {
 	}
 	if !t.Submitted.IsZero() {
 		tv.Submitted = t.Submitted.UTC().Format(time.RFC3339)
+	}
+	if len(t.KV) > 0 {
+		tv.KV = t.KV
 	}
 	return tv
 }

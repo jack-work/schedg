@@ -148,6 +148,22 @@ func (d *dolt) Load(ctx context.Context) ([]Row, error) {
 		}
 	}
 
+	// Load per-task KV pairs.
+	kvMap := map[string]map[string]string{}
+	if sc.KVTable != "" && d.hasTable(ctx, sc.KVTable) {
+		krows, err := d.query(ctx, fmt.Sprintf("SELECT %s AS tid, %s AS k, %s AS v FROM %s;",
+			sc.KVTaskCol, sc.KVKeyCol, sc.KVValCol, sc.KVTable))
+		if err == nil {
+			for _, kr := range krows {
+				tid := toStr(kr["tid"])
+				if kvMap[tid] == nil {
+					kvMap[tid] = map[string]string{}
+				}
+				kvMap[tid][toStr(kr["k"])] = toStr(kr["v"])
+			}
+		}
+	}
+
 	out := make([]Row, 0, len(raw))
 	for _, r := range raw {
 		id := toStr(r["id"])
@@ -167,6 +183,7 @@ func (d *dolt) Load(ctx context.Context) ([]Row, error) {
 		if d := toStr(r["description"]); d != "" {
 			row.Fields["description"] = d
 		}
+		row.KV = kvMap[id]
 		out = append(out, row)
 	}
 	return out, nil
@@ -299,6 +316,61 @@ func (d *dolt) RemoveDep(ctx context.Context, taskID, depID string) error {
 	}
 	return d.exec(ctx, fmt.Sprintf("DELETE FROM %s WHERE %s=%s AND %s=%s;",
 		d.sc.DepsTable, d.sc.DepFrom, sqlStr(taskID), d.sc.DepTo, sqlStr(depID)))
+}
+
+func (d *dolt) SetKV(ctx context.Context, taskID, key, value string) error {
+	if d.sc.KVTable == "" {
+		return fmt.Errorf("schema has no KV table")
+	}
+	if len(value) > 500 {
+		return fmt.Errorf("value exceeds 500 character limit (%d chars)", len(value))
+	}
+	return d.exec(ctx, fmt.Sprintf("REPLACE INTO %s (%s, %s, %s) VALUES (%s, %s, %s);",
+		d.sc.KVTable, d.sc.KVTaskCol, d.sc.KVKeyCol, d.sc.KVValCol,
+		sqlStr(taskID), sqlStr(key), sqlStr(value)))
+}
+
+func (d *dolt) DeleteKV(ctx context.Context, taskID, key string) error {
+	if d.sc.KVTable == "" {
+		return fmt.Errorf("schema has no KV table")
+	}
+	return d.exec(ctx, fmt.Sprintf("DELETE FROM %s WHERE %s=%s AND %s=%s;",
+		d.sc.KVTable, d.sc.KVTaskCol, sqlStr(taskID), d.sc.KVKeyCol, sqlStr(key)))
+}
+
+func (d *dolt) GetKV(ctx context.Context, taskID string) (map[string]string, error) {
+	if d.sc.KVTable == "" {
+		return nil, nil
+	}
+	rows, err := d.query(ctx, fmt.Sprintf("SELECT %s, %s FROM %s WHERE %s=%s;",
+		d.sc.KVKeyCol, d.sc.KVValCol, d.sc.KVTable, d.sc.KVTaskCol, sqlStr(taskID)))
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for _, r := range rows {
+		out[toStr(r[d.sc.KVKeyCol])] = toStr(r[d.sc.KVValCol])
+	}
+	return out, nil
+}
+
+func (d *dolt) SetDBMeta(ctx context.Context, key, value string) error {
+	return d.WriteMeta(ctx, key, value)
+}
+
+func (d *dolt) GetDBMeta(ctx context.Context) (map[string]string, error) {
+	if d.sc.MetaTable == "" {
+		return nil, nil
+	}
+	rows, err := d.query(ctx, fmt.Sprintf("SELECT k, v FROM %s;", d.sc.MetaTable))
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for _, r := range rows {
+		out[toStr(r["k"])] = toStr(r["v"])
+	}
+	return out, nil
 }
 
 func (d *dolt) Close() error { return nil }

@@ -63,6 +63,16 @@ func main() {
 		err = cmdAddDep(args)
 	case "rm-dep":
 		err = cmdRemoveDep(args)
+	case "set-kv":
+		err = cmdSetKV(args)
+	case "rm-kv":
+		err = cmdRmKV(args)
+	case "get-kv":
+		err = cmdGetKV(args)
+	case "set-meta":
+		err = cmdSetMeta(args)
+	case "get-meta":
+		err = cmdGetMeta(args)
 	case "comparators":
 		for _, n := range priority.Names() {
 			fmt.Println(n)
@@ -94,6 +104,11 @@ func usage() {
   schedg mark-done <db> <id>
   schedg add-dep <db> <task-id> <dep-id>
   schedg rm-dep <db> <task-id> <dep-id>
+  schedg set-kv <db> <task-id> <key> <value>
+  schedg rm-kv <db> <task-id> <key>
+  schedg get-kv <db> <task-id>
+  schedg set-meta <db> <key> <value>
+  schedg get-meta <db>
 
   Queue operations (state file only):
   schedg status <db>
@@ -619,6 +634,116 @@ func cmdRemoveDep(args []string) error {
 		return err
 	}
 	fmt.Printf("removed dependency: #%s no longer depends on #%s\n", args[1], args[2])
+	return nil
+}
+
+// --- KV commands ---
+
+func cmdSetKV(args []string) error {
+	if len(args) < 4 {
+		return fmt.Errorf("usage: schedg set-kv <db> <task-id> <key> <value>")
+	}
+	q, err := open(args[0])
+	if err != nil {
+		return err
+	}
+	defer q.Close()
+	if err := q.SetKV(context.Background(), args[1], args[2], strings.Join(args[3:], " ")); err != nil {
+		return err
+	}
+	fmt.Printf("set #%s %s\n", args[1], args[2])
+	return nil
+}
+
+func cmdRmKV(args []string) error {
+	if len(args) < 3 {
+		return fmt.Errorf("usage: schedg rm-kv <db> <task-id> <key>")
+	}
+	q, err := open(args[0])
+	if err != nil {
+		return err
+	}
+	defer q.Close()
+	if err := q.DeleteKV(context.Background(), args[1], args[2]); err != nil {
+		return err
+	}
+	fmt.Printf("removed #%s %s\n", args[1], args[2])
+	return nil
+}
+
+func cmdGetKV(args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("usage: schedg get-kv <db> <task-id>")
+	}
+	q, err := open(args[0])
+	if err != nil {
+		return err
+	}
+	defer q.Close()
+	kv, err := q.GetKV(context.Background(), args[1])
+	if err != nil {
+		return err
+	}
+	if len(kv) == 0 {
+		fmt.Println("no key-value pairs")
+		return nil
+	}
+	keys := make([]string, 0, len(kv))
+	for k := range kv {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		v := kv[k]
+		if len(v) > 80 {
+			v = v[:80] + "..."
+		}
+		fmt.Printf("%s = %s\n", k, v)
+	}
+	return nil
+}
+
+func cmdSetMeta(args []string) error {
+	if len(args) < 3 {
+		return fmt.Errorf("usage: schedg set-meta <db> <key> <value>")
+	}
+	q, err := open(args[0])
+	if err != nil {
+		return err
+	}
+	defer q.Close()
+	if err := q.SetDBMeta(context.Background(), args[1], strings.Join(args[2:], " ")); err != nil {
+		return err
+	}
+	fmt.Printf("set %s\n", args[1])
+	return nil
+}
+
+func cmdGetMeta(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: schedg get-meta <db>")
+	}
+	q, err := open(args[0])
+	if err != nil {
+		return err
+	}
+	defer q.Close()
+	meta, err := q.GetDBMeta(context.Background())
+	if err != nil {
+		return err
+	}
+	if len(meta) == 0 {
+		fmt.Println("no metadata")
+		return nil
+	}
+	keys := make([]string, 0, len(meta))
+	for k := range meta {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		fmt.Printf("%s = %s\n", k, meta[k])
+	}
 	return nil
 }
 

@@ -19,6 +19,7 @@ type Row struct {
 	Submitted time.Time
 	Deps      []string
 	Fields    map[string]string
+	KV        map[string]string // per-task key-value pairs
 }
 
 type Config struct {
@@ -61,6 +62,19 @@ type Source interface {
 	AddDep(ctx context.Context, taskID, depID string) error
 	// RemoveDep removes a dependency edge.
 	RemoveDep(ctx context.Context, taskID, depID string) error
+
+	// --- Key-Value ---
+
+	// SetKV sets a key-value pair on a task (value max 500 chars).
+	SetKV(ctx context.Context, taskID, key, value string) error
+	// DeleteKV removes a key-value pair from a task.
+	DeleteKV(ctx context.Context, taskID, key string) error
+	// GetKV returns all key-value pairs for a task.
+	GetKV(ctx context.Context, taskID string) (map[string]string, error)
+	// SetDBMeta sets a database-level key-value pair.
+	SetDBMeta(ctx context.Context, key, value string) error
+	// GetDBMeta returns all database-level key-value pairs.
+	GetDBMeta(ctx context.Context) (map[string]string, error)
 }
 
 type Factory func(Config) (Source, error)

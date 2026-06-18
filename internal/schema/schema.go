@@ -22,6 +22,10 @@ type Schema struct {
 	DepFrom      string // dep table: the dependent task id
 	DepTo        string // dep table: the prerequisite task id
 	MetaTable    string // single key/value table holding the repo back-reference
+	KVTable      string // per-task key/value pairs
+	KVTaskCol    string // FK column in the KV table
+	KVKeyCol     string // key column
+	KVValCol     string // value column
 
 	DDL          []string // create statements, run in order, idempotent
 	SavedQueries []SavedQuery
@@ -41,6 +45,10 @@ func Default(driver string) Schema {
 		DepFrom:      "task_id",
 		DepTo:        "depends_on_id",
 		MetaTable:    "schedg_meta",
+		KVTable:      "todo_kv",
+		KVTaskCol:    "task_id",
+		KVKeyCol:     "k",
+		KVValCol:     "v",
 		SavedQueries: defaultSavedQueries(),
 	}
 	switch driver {
@@ -90,6 +98,13 @@ func mysqlDDL() []string {
                 k VARCHAR(64) PRIMARY KEY,
                 v TEXT NOT NULL
             );`,
+		`CREATE TABLE IF NOT EXISTS todo_kv (
+                task_id INT NOT NULL,
+                k VARCHAR(128) NOT NULL,
+                v VARCHAR(500) NOT NULL,
+                PRIMARY KEY (task_id, k),
+                CONSTRAINT fk_kv_task FOREIGN KEY (task_id) REFERENCES todo(id) ON DELETE CASCADE
+            );`,
 	}
 }
 
@@ -114,6 +129,12 @@ func sqliteDDL() []string {
 		`CREATE TABLE IF NOT EXISTS schedg_meta (
             k TEXT PRIMARY KEY,
             v TEXT NOT NULL
+        );`,
+		`CREATE TABLE IF NOT EXISTS todo_kv (
+            task_id INTEGER NOT NULL REFERENCES todo(id) ON DELETE CASCADE,
+            k TEXT NOT NULL CHECK (length(k) <= 128),
+            v TEXT NOT NULL CHECK (length(v) <= 500),
+            PRIMARY KEY (task_id, k)
         );`,
 	}
 }

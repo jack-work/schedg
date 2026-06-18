@@ -114,6 +114,37 @@ func (s *sqlSource) Load(ctx context.Context) ([]Row, error) {
 	}
 	rows.Close()
 
+	// Load per-task KV pairs.
+	if sc.KVTable != "" {
+		if ok, _ := s.dialect.hasTable(ctx, s.db, sc.KVTable); ok {
+			kvMap := map[string]map[string]string{}
+			kq := fmt.Sprintf("SELECT %s, %s, %s FROM %s", sc.KVTaskCol, sc.KVKeyCol, sc.KVValCol, sc.KVTable)
+			krows, err := s.db.QueryContext(ctx, kq)
+			if err != nil {
+				return nil, err
+			}
+			defer krows.Close()
+			for krows.Next() {
+				var rawID any
+				var k, v string
+				if err := krows.Scan(&rawID, &k, &v); err != nil {
+					return nil, err
+				}
+				id := anyToStr(rawID)
+				if kvMap[id] == nil {
+					kvMap[id] = map[string]string{}
+				}
+				kvMap[id][k] = v
+			}
+			if err := krows.Err(); err != nil {
+				return nil, err
+			}
+			for i := range result {
+				result[i].KV = kvMap[result[i].ID]
+			}
+		}
+	}
+
 	// Load dependencies.
 	if sc.DepsTable != "" {
 		if ok, _ := s.dialect.hasTable(ctx, s.db, sc.DepsTable); ok {
@@ -321,6 +352,75 @@ func (s *sqlSource) RemoveDep(ctx context.Context, taskID, depID string) error {
 		s.sc.DepsTable, s.sc.DepFrom, s.sc.DepTo)
 	_, err := s.db.ExecContext(ctx, q, taskID, depID)
 	return err
+}
+
+func (s *sqlSource) SetKV(ctx context.Context, taskID, key, value string) error {
+	if s.sc.KVTable == "" {
+		return fmt.Errorf("schema has no KV table")
+	}
+	if len(value) > 500 {
+		return fmt.Errorf("value exceeds 500 character limit (%d chars)", len(value))
+	}
+	q := s.dialect.upsertSQL(s.sc.KVTable, []string{s.sc.KVTaskCol, s.sc.KVKeyCol}, []string{s.sc.KVValCol})
+	_, err := s.db.ExecContext(ctx, q, taskID, key, value)
+	return err
+}
+
+func (s *sqlSource) DeleteKV(ctx context.Context, taskID, key string) error {
+	if s.sc.KVTable == "" {
+		return fmt.Errorf("schema has no KV table")
+	}
+	q := fmt.Sprintf("DELETE FROM %s WHERE %s = ? AND %s = ?",
+		s.sc.KVTable, s.sc.KVTaskCol, s.sc.KVKeyCol)
+	_, err := s.db.ExecContext(ctx, q, taskID, key)
+	return err
+}
+
+func (s *sqlSource) GetKV(ctx context.Context, taskID string) (map[string]string, error) {
+	if s.sc.KVTable == "" {
+		return nil, nil
+	}
+	q := fmt.Sprintf("SELECT %s, %s FROM %s WHERE %s = ?",
+		s.sc.KVKeyCol, s.sc.KVValCol, s.sc.KVTable, s.sc.KVTaskCol)
+	rows, err := s.db.QueryContext(ctx, q, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, err
+		}
+		out[k] = v
+	}
+	return out, rows.Err()
+}
+
+func (s *sqlSource) SetDBMeta(ctx context.Context, key, value string) error {
+	return s.WriteMeta(ctx, key, value)
+}
+
+func (s *sqlSource) GetDBMeta(ctx context.Context) (map[string]string, error) {
+	if s.sc.MetaTable == "" {
+		return nil, nil
+	}
+	q := fmt.Sprintf("SELECT k, v FROM %s", s.sc.MetaTable)
+	rows, err := s.db.QueryContext(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, err
+		}
+		out[k] = v
+	}
+	return out, rows.Err()
 }
 
 func (s *sqlSource) Close() error { return s.db.Close() }

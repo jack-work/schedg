@@ -22,6 +22,7 @@ interface TaskView {
   reason?: string;
   leasedAt?: string;
   caller?: string;
+  kv?: Record<string, string>;
 }
 
 interface LinksConfig {
@@ -45,6 +46,7 @@ interface QueueSnapshot {
   deps: DepEdge[];
   blockedBy: Record<string, string[]>;
   counts: Record<string, number>;
+  dbMeta?: Record<string, string>;
   snapshotAt: string;
 }
 
@@ -575,6 +577,11 @@ function QueueView({
             {t.submitted && (
               <span className="sg-task-submitted">{relativeTime(t.submitted)}</span>
             )}
+            {t.kv && Object.keys(t.kv).length > 0 && (
+              <span className="sg-task-kv-count" title={Object.keys(t.kv).join(", ")}>
+                {Object.keys(t.kv).length} kv
+              </span>
+            )}
             <button
               className="sg-copy-btn"
               title="Copy title"
@@ -720,6 +727,33 @@ function TaskDetail({
           </div>
         )}
       </div>
+
+      {task.kv && Object.keys(task.kv).length > 0 && (
+        <div className="sg-detail-kv">
+          <h3 className="sg-kv-heading">Annotations</h3>
+          {Object.entries(task.kv)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([k, v]) => (
+              <div key={k} className="sg-kv-entry">
+                <div className="sg-kv-key">
+                  {k}
+                  <button
+                    className="sg-copy-btn"
+                    title="Copy value"
+                    onClick={() => copyText(v)}
+                  >
+                    &#x2398;
+                  </button>
+                </div>
+                <div className="sg-kv-val">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {v.length > 200 ? v.slice(0, 200) + "..." : v}
+                  </ReactMarkdown>
+                </div>
+              </div>
+            ))}
+        </div>
+      )}
     </div>
   );
 }

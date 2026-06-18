@@ -42,6 +42,7 @@ type Task struct {
 	Description string
 	Priority    int64
 	Submitted   time.Time
+	KV          map[string]string
 }
 
 // TaskOpts carries optional fields for Add and Update.
@@ -166,6 +167,31 @@ func (db *DB) AddDep(ctx context.Context, taskID, depID string) error {
 	return db.q.AddDep(ctx, taskID, depID)
 }
 
+// SetKV sets a key-value pair on a task (value max 500 chars, supports markdown).
+func (db *DB) SetKV(ctx context.Context, taskID, key, value string) error {
+	return db.q.SetKV(ctx, taskID, key, value)
+}
+
+// DeleteKV removes a key-value pair from a task.
+func (db *DB) DeleteKV(ctx context.Context, taskID, key string) error {
+	return db.q.DeleteKV(ctx, taskID, key)
+}
+
+// GetKV returns all key-value pairs for a task.
+func (db *DB) GetKV(ctx context.Context, taskID string) (map[string]string, error) {
+	return db.q.GetKV(ctx, taskID)
+}
+
+// SetDBMeta sets a database-level key-value pair.
+func (db *DB) SetDBMeta(ctx context.Context, key, value string) error {
+	return db.q.SetDBMeta(ctx, key, value)
+}
+
+// GetDBMeta returns all database-level key-value pairs.
+func (db *DB) GetDBMeta(ctx context.Context) (map[string]string, error) {
+	return db.q.GetDBMeta(ctx)
+}
+
 // RemoveDep removes a dependency edge.
 func (db *DB) RemoveDep(ctx context.Context, taskID, depID string) error {
 	return db.q.RemoveDep(ctx, taskID, depID)
@@ -248,6 +274,7 @@ func fromInternal(t priority.Task) Task {
 		Description: desc,
 		Priority:    t.Priority,
 		Submitted:   t.Submitted,
+		KV:          t.KV,
 	}
 }
 
