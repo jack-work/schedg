@@ -86,11 +86,6 @@ func Open(db config.DB) (*Queue, error) {
 	if err := q.load(context.Background()); err != nil {
 		return nil, err
 	}
-	if q.drift || len(q.expired) > 0 {
-		if err := q.Save(); err != nil {
-			return nil, err
-		}
-	}
 	return q, nil
 }
 
@@ -126,6 +121,20 @@ func (q *Queue) load(ctx context.Context) error {
 			q.drift = true
 		}
 		q.submitErrs = q.rebuild(rows, prev)
+		// Refresh fields for all tasks (including in-flight/dead that
+		// were seeded from the snapshot and skipped during Submit).
+		fieldMap := make(map[string]map[string]string, len(rows))
+		kvMap := make(map[string]map[string]string, len(rows))
+		for _, r := range rows {
+			if len(r.Fields) > 0 {
+				fieldMap[r.ID] = r.Fields
+			}
+			if len(r.KV) > 0 {
+				kvMap[r.ID] = r.KV
+			}
+		}
+		q.sched.RefreshFields(fieldMap)
+		q.sched.RefreshKV(kvMap)
 	}
 	q.checksum = checksum
 	q.expired = q.sched.ExpireLeases(q.leaseTTL)

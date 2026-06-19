@@ -112,6 +112,31 @@ func Init(ctx context.Context, opts Options) (*DB, error) {
 	return &DB{q: q}, nil
 }
 
+// QueueInfo describes a registered queue.
+type QueueInfo struct {
+	Name       string
+	Driver     string
+	Path       string
+	Comparator string
+}
+
+// ListQueues returns all registered queues from the schedg config.
+func ListQueues() ([]QueueInfo, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]QueueInfo, len(cfg.DBs))
+	for i, db := range cfg.DBs {
+		cmp := db.Comparator
+		if cmp == "" {
+			cmp = "priority-submitted"
+		}
+		out[i] = QueueInfo{Name: db.Name, Driver: db.Driver, Path: db.Path, Comparator: cmp}
+	}
+	return out, nil
+}
+
 // Open opens an existing database without running schema init.
 func Open(opts Options) (*DB, error) {
 	cdb := toConfigDB(opts)
@@ -254,11 +279,142 @@ func (db *DB) Ready() []Task {
 	return out
 }
 
+// Inflight returns all currently leased tasks.
+func (db *DB) Inflight() []Task {
+	internal := db.q.Inflight()
+	out := make([]Task, 0, len(internal))
+	for _, t := range internal {
+		out = append(out, fromInternal(t))
+	}
+	return out
+}
+
+// Meta returns per-task metadata (attempts, cancels, caller, etc.).
+func (db *DB) Meta(id string) sched.Meta { return db.q.Meta(id) }
+
+// DepEdge represents a dependency relationship.
+type DepEdge struct {
+	From string
+	To   string
+}
+
+// QueueSnapshot is a full snapshot of a queue's state for display.
+type QueueSnapshot struct {
+	Name       string
+	Driver     string
+	Ready      []Task
+	Blocked    []Task
+	Inflight   []Task
+	Dead       []Task
+	Completed  []Task
+	Deps       []DepEdge
+	BlockedBy  map[string][]string
+	Counts     map[string]int
+	DBMeta     map[string]string
+	SnapshotAt time.Time
+	// Per-task metadata
+	Meta       map[string]TaskMeta
+}
+
+// TaskMeta holds per-task runtime bookkeeping.
+type TaskMeta struct {
+	Attempts int
+	Cancels  int
+	Reason   string
+	LeasedAt time.Time
+	Caller   string
+}
+
+// Snapshot returns a full snapshot of the queue's current state.
+func (db *DB) Snapshot() QueueSnapshot {
+	st := db.q.Status()
+	snap := QueueSnapshot{
+		Counts: map[string]int{
+			"ready": st.Ready, "blocked": st.Blocked,
+			"inflight": st.Inflight, "dead": st.Dead, "completed": st.Completed,
+		},
+		SnapshotAt: time.Now(),
+		Meta:       map[string]TaskMeta{},
+	}
+
+	addMeta := func(id string) {
+		m := db.q.Meta(id)
+		snap.Meta[id] = TaskMeta{
+			Attempts: m.Attempts, Cancels: m.Cancels,
+			Reason: m.Reason, LeasedAt: m.LeasedAt, Caller: m.Caller,
+		}
+	}
+
+	for _, t := range db.q.Ready() {
+		snap.Ready = append(snap.Ready, fromInternal(t))
+		addMeta(t.ID)
+	}
+	snap.BlockedBy = db.q.Blocked()
+	for id, t := range db.q.BlockedAll() {
+		snap.Blocked = append(snap.Blocked, fromInternal(t))
+		addMeta(id)
+	}
+	for id, t := range db.q.Inflight() {
+		snap.Inflight = append(snap.Inflight, fromInternal(t))
+		addMeta(id)
+	}
+	for id, t := range db.q.Dead() {
+		snap.Dead = append(snap.Dead, fromInternal(t))
+		addMeta(id)
+	}
+	for id, t := range db.q.CompletedTasks() {
+		snap.Completed = append(snap.Completed, fromInternal(t))
+		addMeta(id)
+	}
+	for taskID, deps := range snap.BlockedBy {
+		for _, depID := range deps {
+			snap.Deps = append(snap.Deps, DepEdge{From: taskID, To: depID})
+		}
+	}
+	snap.DBMeta, _ = db.q.GetDBMeta(context.Background())
+
+	return snap
+}
+
+// Reload re-reads from the source and reconciles state.
+func (db *DB) Reload() error {
+	return db.q.Reload(context.Background())
+}
+
 // Save persists the current queue state to the state file.
 func (db *DB) Save() error { return db.q.Save() }
 
 // Close releases the database connection.
 func (db *DB) Close() error { return db.q.Close() }
+
+// ConfigDB describes a database entry in the schedg config file.
+type ConfigDB = config.DB
+
+// RegisterConfig adds or updates a DB entry in the schedg config.
+func RegisterConfig(db ConfigDB) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	cfg.Put(db)
+	return cfg.Save()
+}
+
+// UnregisterConfig removes a DB entry from the schedg config by name.
+func UnregisterConfig(name string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	newDBs := make([]config.DB, 0, len(cfg.DBs))
+	for _, d := range cfg.DBs {
+		if d.Name != name {
+			newDBs = append(newDBs, d)
+		}
+	}
+	cfg.DBs = newDBs
+	return cfg.Save()
+}
 
 // --- conversions ---
 
